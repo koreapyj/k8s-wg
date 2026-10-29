@@ -8,7 +8,8 @@ RUN apk add --no-cache \
       wireguard-tools-wg-quick \
       iproute2 \
       iptables \
- && iptables -V | grep -q nf_tables
+ && iptables -V | grep -q nf_tables \
+ && ip6tables -V | grep -q nf_tables
 
 COPY --chmod=0755 wg-gw /usr/local/bin/wg-gw
 

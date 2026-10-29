@@ -12,5 +12,9 @@ WireGuard control container for a gateway pod running with `hostNetwork`.
   traffic from those sources leaving through `wgt+` is SNATed to `SNAT_TO`
   (inserted ahead of other POSTROUTING rules; `169.254.0.0/16` destinations
   are excluded).
+- Optional egress pinning: with `EGRESS_ALLOW=<cidr>[,<cidr>...]` (IPv4 and/or
+  IPv6), UDP sent from the tunnels' listen ports to any other destination is
+  dropped. Use it when the tunnels sit behind a UDP proxy, so a peer never
+  receives (and roams to) packets from another source address.
 
 Images: `ghcr.io/koreapyj/k8s-wg:<version>` (from `v*` tags) and `:sha-<short>`.
