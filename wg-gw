@@ -1,0 +1,62 @@
+#!/bin/sh
+# Bring up every wgt_*.conf in $CONF_DIR with wg-quick (node netns, hostNetwork),
+# add forwarding/MSS-clamp rules, then wait. Tear everything down on SIGTERM.
+# Re-running is safe: leftovers from a previous run are removed first.
+set -eu
+
+CONF_DIR=${CONF_DIR:-/etc/wg-gw}
+TAG=wg-gw
+
+log() { echo "wg-gw: $*"; }
+
+ipt() { # ipt <table> <chain> <rule...>: add once
+	t=$1 c=$2; shift 2
+	iptables -t "$t" -C "$c" -m comment --comment "$TAG" "$@" 2>/dev/null ||
+		iptables -t "$t" -I "$c" 1 -m comment --comment "$TAG" "$@"
+}
+
+rules_up() {
+	ipt filter FORWARD -i wgt+ -j ACCEPT
+	ipt filter FORWARD -o wgt+ -j ACCEPT
+	ipt mangle FORWARD -o wgt+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+	ipt mangle OUTPUT -o wgt+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+}
+
+rules_down() {
+	for t in filter mangle; do
+		iptables -t "$t" -S | grep -- "--comment $TAG" | sed 's/^-A /-D /' |
+			while read -r r; do eval iptables -t "$t" "$r" || true; done
+	done
+}
+
+links_down() {
+	for l in $(ip -o link show type wireguard | awk -F': ' '{print $2}' | cut -d@ -f1); do
+		case $l in wgt_*) ip link del "$l" && log "removed $l" ;; esac
+	done
+}
+
+down() {
+	links_down
+	rules_down
+}
+
+up() {
+	set -- "$CONF_DIR"/wgt_*.conf
+	[ -e "$1" ] || { log "no wgt_*.conf in $CONF_DIR"; exit 1; }
+	for c; do
+		wg-quick up "$c"
+	done
+	rules_up
+	log "up: $(wg show interfaces)"
+}
+
+case ${1:-run} in
+	run)
+		down
+		up
+		trap 'down; exit 0' TERM INT
+		while :; do sleep 3600 & wait $!; done
+		;;
+	down) down ;;
+	*) echo "usage: wg-gw [run|down]" >&2; exit 2 ;;
+esac
