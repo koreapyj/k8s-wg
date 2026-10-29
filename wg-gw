@@ -20,10 +20,18 @@ rules_up() {
 	ipt filter FORWARD -o wgt+ -j ACCEPT
 	ipt mangle FORWARD -o wgt+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 	ipt mangle OUTPUT -o wgt+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+	# Optional: rewrite the source of traffic leaving through the tunnels
+	# (e.g. pod CIDR, or tunnel addresses picked for locally originated packets).
+	# Tunnel-to-tunnel traffic (BGP sessions) is left alone.
+	if [ -n "${SNAT_TO:-}" ]; then
+		for s in $(echo "${SNAT_SOURCES:-}" | tr ',' ' '); do
+			ipt nat POSTROUTING -o wgt+ -s "$s" ! -d 169.254.0.0/16 -j SNAT --to-source "$SNAT_TO"
+		done
+	fi
 }
 
 rules_down() {
-	for t in filter mangle; do
+	for t in filter mangle nat; do
 		iptables -t "$t" -S | grep -- "--comment $TAG" | sed 's/^-A /-D /' |
 			while read -r r; do eval iptables -t "$t" "$r" || true; done
 	done
